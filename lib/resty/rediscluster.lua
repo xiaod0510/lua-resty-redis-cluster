@@ -134,8 +134,15 @@ function _M.fetch_slots(self)
     for i=1,#serv_list do
         local ip = serv_list[i].ip
         local port = serv_list[i].port
+        local password = serv_list[i].password
         local ok, err = red:connect(ip_string(ip), port)
         if ok then
+            if password then
+                ok, err = red:auth(password)
+                if not ok then
+                    return ok, err
+                end
+            end
             local slot_info, err = red:cluster("slots")
             if slot_info then
                 local slots = {}
@@ -144,7 +151,7 @@ function _M.fetch_slots(self)
                     for slot = item[1],item[2] do
                         local list = {serv_list={}, cur = 1}
                        for j = 3,#item do
-                            list.serv_list[#list.serv_list + 1] = {ip = item[j][1], port = item[j][2]}
+                            list.serv_list[#list.serv_list + 1] = {ip = item[j][1], port = item[j][2],password=password}
                             slots[slot] = list
                         end
                     end
@@ -209,9 +216,16 @@ local function _do_cmd(self, cmd, key, ...)
         for i=1,#serv_list do
             local ip = serv_list[index].ip
             local port = serv_list[index].port
+            local password = serv_list[index].password
             local redis_client = redis:new()
             local ok, err = redis_client:connect(ip_string(ip), port)
             if ok then
+                if password then
+                    ok, err = redis_client:auth(password)
+                    if not ok then
+                        return ok, err
+                    end
+                end
                 slots[slot].cur = index
                 local res, err = redis_client[cmd](redis_client, key, ...)
                 redis_client:set_keepalive(config.keepalive_timeout or DEFUALT_KEEPALIVE_TIMEOUT,
@@ -260,9 +274,10 @@ function _M.commit_pipeline(self)
         local slot_item = slots[slot]
         local ip = slot_item.serv_list[slot_item.cur].ip
         local port = slot_item.serv_list[slot_item.cur].port
+        local password = slot_item.serv_list[slot_item.cur].password
         local inst_key = ip..tostring(port)
         if not map[inst_key] then
-            map[inst_key] = {ip=ip,port=port,reqs={}}
+            map[inst_key] = {ip=ip,port=port,password=password,reqs={}}
             map_ret[inst_key] = {}
         end
         local ins_req = map[inst_key].reqs
@@ -271,11 +286,18 @@ function _M.commit_pipeline(self)
     for k, v in pairs(map) do
         local ip = v.ip
         local port = v.port
+        local password = v.password
         local ins_reqs = v.reqs
         local ins = redis:new()
         local ok, err = ins:connect(ip_string(ip), port)
 
         if ok then
+            if password then
+                ok, err = ins:auth(password)
+                if not ok then
+                    return ok, err
+                end
+            end
             ins:init_pipeline()
             for i=1,#ins_reqs do
                 local req = ins_reqs[i]
